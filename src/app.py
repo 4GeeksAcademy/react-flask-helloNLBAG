@@ -1,72 +1,67 @@
-"""
-This module takes care of starting the API Server, Loading the DB and Adding the endpoints
-"""
 import os
-from flask import Flask, request, jsonify, url_for, send_from_directory
-from flask_migrate import Migrate
-from flask_swagger import swagger
-from api.utils import APIException, generate_sitemap
-from api.models import db
-from api.routes import api
-from api.admin import setup_admin
-from api.commands import setup_commands
+import time
+from flask import Flask, request, jsonify
+from flask_cors import CORS
+from flask_jwt_extended import JWTManager, create_access_token, jwt_required, get_jwt_identity
+from werkzeug.security import generate_password_hash, check_password_hash
+from dotenv import load_dotenv
 
-# from models import Person
+# Cargar variables de entorno desde .env
+load_dotenv()
 
-ENV = "development" if os.getenv("FLASK_DEBUG") == "1" else "production"
-static_file_dir = os.path.join(os.path.dirname(
-    os.path.realpath(__file__)), '../dist/')
-app = Flask(__name__)
-app.url_map.strict_slashes = False
+# Simulación de base de datos en memoria (usa una real en producción)
+users = {}
 
-# database condiguration
-db_url = os.getenv("DATABASE_URL")
-if db_url is not None:
-    app.config['SQLALCHEMY_DATABASE_URI'] = db_url.replace(
-        "postgres://", "postgresql://")
-else:
-    app.config['SQLALCHEMY_DATABASE_URI'] = "sqlite:////tmp/test.db"
+def create_app():
+    app = Flask(__name__)
+    CORS(app)
 
-app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-MIGRATE = Migrate(app, db, compare_type=True)
-db.init_app(app)
+    # Configuraciones seguras
+    app.config["JWT_SECRET_KEY"] = os.getenv("JWT_SECRET_KEY", "fallback-key")
 
-# add the admin
-setup_admin(app)
+    # Inicializar JWT
+    jwt = JWTManager(app)
 
-# add the admin
-setup_commands(app)
+    # Ruta de registro
+    @app.route("/api/signup", methods=["POST"])
+    def signup():
+        data = request.get_json()
+        email = data.get("email")
+        password = data.get("password")
 
-# Add all endpoints form the API with a "api" prefix
-app.register_blueprint(api, url_prefix='/api')
+        if not email or not password:
+            return jsonify({"msg": "Faltan datos"}), 400
+        if email in users:
+            return jsonify({"msg": "Ya existe"}), 409
 
-# Handle/serialize errors like a JSON object
+        hashed_password = generate_password_hash(password)
+        users[email] = {"password": hashed_password, "created_at": time.time()}
+        return jsonify({"msg": "Usuario creado"}), 201
 
+    # Ruta de login
+    @app.route("/api/login", methods=["POST"])
+    def login():
+        data = request.get_json()
+        email = data.get("email")
+        password = data.get("password")
 
-@app.errorhandler(APIException)
-def handle_invalid_usage(error):
-    return jsonify(error.to_dict()), error.status_code
+        user = users.get(email)
+        if not user or not check_password_hash(user["password"], password):
+            return jsonify({"msg": "Credenciales inválidas"}), 401
 
-# generate sitemap with all your endpoints
+        token = create_access_token(identity=email)
+        return jsonify(token=token), 200
 
+    # Ruta protegida
+    @app.route("/api/private", methods=["GET"])
+    @jwt_required()
+    def private():
+        user = get_jwt_identity()
+        return jsonify(logged_in_as=user), 200
 
-@app.route('/')
-def sitemap():
-    if ENV == "development":
-        return generate_sitemap(app)
-    return send_from_directory(static_file_dir, 'index.html')
+    return app
 
-# any other endpoint will try to serve it like a static file
-@app.route('/<path:path>', methods=['GET'])
-def serve_any_other_file(path):
-    if not os.path.isfile(os.path.join(static_file_dir, path)):
-        path = 'index.html'
-    response = send_from_directory(static_file_dir, path)
-    response.cache_control.max_age = 0  # avoid cache memory
-    return response
-
-
-# this only runs if `$ python src/main.py` is executed
-if __name__ == '__main__':
-    PORT = int(os.environ.get('PORT', 3001))
-    app.run(host='0.0.0.0', port=PORT, debug=True)
+# Ejecutar directamente (solo para desarrollo)
+if __name__ == "__main__":
+    app = create_app()
+    app.run(host="0.0.0.0", port=5000, debug=True)

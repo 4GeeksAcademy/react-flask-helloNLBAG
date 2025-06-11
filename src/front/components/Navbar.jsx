@@ -1,19 +1,37 @@
-import { Link } from "react-router-dom";
+import React from "react";
+import { Link, useNavigate } from "react-router-dom";
+import "./Navbar.css";
 
-export const Navbar = () => {
+const Navbar = () => {
+  const navigate = useNavigate();
+  const isLoggedIn = !!sessionStorage.getItem("token");
 
-	return (
-		<nav className="navbar navbar-light bg-light">
-			<div className="container">
-				<Link to="/">
-					<span className="navbar-brand mb-0 h1">React Boilerplate</span>
-				</Link>
-				<div className="ml-auto">
-					<Link to="/demo">
-						<button className="btn btn-primary">Check the Context in action</button>
-					</Link>
-				</div>
-			</div>
-		</nav>
-	);
+  const logout = () => {
+    sessionStorage.removeItem("token");
+    navigate("/login");
+  };
+
+  return (
+    <nav className="navbar">
+      <div className="navbar-logo">
+        <Link to="/">MiApp</Link>
+      </div>
+      <div className="navbar-links">
+        <Link to="/">Inicio</Link>
+        {isLoggedIn ? (
+          <>
+            <Link to="/private">Privado</Link>
+            <button onClick={logout}>Cerrar sesión</button>
+          </>
+        ) : (
+          <>
+            <Link to="/login">Login</Link>
+            <Link to="/signup">Registro</Link>
+          </>
+        )}
+      </div>
+    </nav>
+  );
 };
+
+export default Navbar;
